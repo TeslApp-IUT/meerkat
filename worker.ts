@@ -63,17 +63,25 @@ function pgTimestamp(d: Date): string {
     return d.toISOString().replace("T", " ").replace("Z", "+00");
 }
 
-function asTimestamp(v: any): Date {
-    if (typeof v === "number") return new Date(v * 1000); // epoch seconds
+// Returns null when the value isn't a usable timestamp. Tesla reports some
+// time fields (e.g. ScheduledChargingStartTime) as a boolean when no time is
+// set, so callers should treat null as "nothing to record" and skip — never
+// throw, or one such field would roll back the whole payload's transaction.
+function asTimestamp(v: any): Date | null {
+    if (typeof v === "boolean") return null; // no scheduled time set
+    if (typeof v === "number") {
+        if (!Number.isFinite(v) || v <= 0) return null;
+        return new Date(v * 1000); // epoch seconds
+    }
     if (typeof v === "string") {
         // interpret as UTC wall-clock, matching the Python strptime behaviour
         const iso = /^\d{4}-\d{2}-\d{2}[ T]/.test(v) ? v.replace(" ", "T") + "Z" : v;
         let d = new Date(iso);
         if (Number.isNaN(+d)) d = new Date(v + " UTC");
-        if (Number.isNaN(+d)) throw new Error(`Cannot parse timestamp: ${v}`);
+        if (Number.isNaN(+d)) return null;
         return d;
     }
-    throw new Error(`Cannot parse timestamp: ${String(v)}`);
+    return null;
 }
 
 function payloadTimestamp(payload: any): Date {
@@ -105,8 +113,10 @@ on("BatteryLevel", async (sql, vin, v, ts) => {
 });
 
 on("ScheduledChargingStartTime", async (sql, vin, v, ts) => {
+    const when = asTimestamp(v);
+    if (when === null) return; // no scheduled charging time set — nothing to record
     await sql`INSERT INTO fleet_telemetry.charge_scheduled (vin, scheduled_charging_start_time, timestamp)
-              VALUES (${vin}, ${pgTimestamp(asTimestamp(v))}, ${pgTimestamp(ts)})`;
+              VALUES (${vin}, ${pgTimestamp(when)}, ${pgTimestamp(ts)})`;
 });
 
 on("ClimateKeeperMode", async (sql, vin, v, ts) => {
