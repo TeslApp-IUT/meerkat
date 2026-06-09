@@ -91,39 +91,58 @@ const on = (field: string, fn: Handler) => {
 
 on("HvacACEnabled", async (sql, vin, v, ts) => {
     await sql`INSERT INTO fleet_telemetry.ac_enabled (vin, hvac_ac_enabled, timestamp)
-            VALUES (${vin}, ${asBool(v)}, ${pgTimestamp(ts)})`;
+              VALUES (${vin}, ${asBool(v)}, ${pgTimestamp(ts)})`;
 });
 
 on("ChargeEnableRequest", async (sql, vin, v, ts) => {
     await sql`INSERT INTO fleet_telemetry.charge_enable (vin, charge_enable_request, timestamp)
-            VALUES (${vin}, ${asBool(v)}, ${pgTimestamp(ts)})`;
+              VALUES (${vin}, ${asBool(v)}, ${pgTimestamp(ts)})`;
 });
 
 on("BatteryLevel", async (sql, vin, v, ts) => {
     await sql`INSERT INTO fleet_telemetry.charge_level (vin, battery_level, timestamp)
-            VALUES (${vin}, ${asFloat(v)}, ${pgTimestamp(ts)})`;
+              VALUES (${vin}, ${asFloat(v)}, ${pgTimestamp(ts)})`;
 });
 
 on("ScheduledChargingStartTime", async (sql, vin, v, ts) => {
     await sql`INSERT INTO fleet_telemetry.charge_scheduled (vin, scheduled_charging_start_time, timestamp)
-            VALUES (${vin}, ${pgTimestamp(asTimestamp(v))}, ${pgTimestamp(ts)})`;
+              VALUES (${vin}, ${pgTimestamp(asTimestamp(v))}, ${pgTimestamp(ts)})`;
 });
 
 on("ClimateKeeperMode", async (sql, vin, v, ts) => {
     await sql`INSERT INTO fleet_telemetry.keeper_mode (vin, climate_keeper_mode, timestamp)
-            VALUES (${vin}, ${asInt(v)}, ${pgTimestamp(ts)})`;
+              VALUES (${vin}, ${asInt(v)}, ${pgTimestamp(ts)})`;
 });
 
 on("InsideTemp", async (sql, vin, v, ts) => {
     await sql`INSERT INTO fleet_telemetry.temp_int (vin, inside_temp, timestamp)
-            VALUES (${vin}, ${asFloat(v)}, ${pgTimestamp(ts)})`;
+              VALUES (${vin}, ${asFloat(v)}, ${pgTimestamp(ts)})`;
 });
 
 on("Location", async (sql, vin, v, ts) => {
     // v is the LocationValue message: { latitude, longitude }
     await sql`INSERT INTO fleet_telemetry.location (vin, latitude, longitude, timestamp)
-            VALUES (${vin}, ${Number(v.latitude)}, ${Number(v.longitude)}, ${pgTimestamp(ts)})`;
+              VALUES (${vin}, ${Number(v.latitude)}, ${Number(v.longitude)}, ${pgTimestamp(ts)})`;
 });
+
+// ─── Kafka connect with retry ─────────────────────────────────────────────────
+async function connectWithRetry(
+    consumer: { connect(): Promise<void> },
+    maxRetries = 10,
+    delayMs = 3000,
+): Promise<void> {
+    for (let i = 1; i <= maxRetries; i++) {
+        try {
+            await consumer.connect();
+            return;
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.warn(`[${hms()}] [connect] attempt ${i}/${maxRetries} failed: ${msg}`);
+            if (i === maxRetries) throw e;
+            await Bun.sleep(delayMs);
+        }
+    }
+}
 
 // ─── Main loop ───────────────────────────────────────────────────────────────
 const hms = (d = new Date()) => d.toLocaleTimeString("en-GB", { hour12: false });
@@ -137,17 +156,28 @@ async function main() {
         clientId: "telemetry-worker",
         brokers: [KAFKA_BROKER],
         logLevel: logLevel.ERROR,
+        requestTimeout: 30000,
+        connectionTimeout: 10000,
     });
-    const consumer = kafka.consumer({ groupId: "telemetry-worker" });
+    const consumer = kafka.consumer({
+        groupId: "telemetry-worker",
+        sessionTimeout: 30000,
+        heartbeatInterval: 3000,
+        rebalanceTimeout: 60000,
+    });
 
-    await consumer.connect();
+    await connectWithRetry(consumer);
     await consumer.subscribe({ topic: KAFKA_TOPIC, fromBeginning: false }); // = auto_offset_reset latest
 
     console.log(`[${hms()}] Worker started`);
 
     const shutdown = async () => {
-        try { await consumer.disconnect(); } catch {}
-        try { await sql?.end({ timeout: 5 }); } catch {}
+        try {
+            await consumer.disconnect();
+        } catch {}
+        try {
+            await sql?.end({ timeout: 5 });
+        } catch {}
         process.exit(0);
     };
     process.on("SIGINT", shutdown);
