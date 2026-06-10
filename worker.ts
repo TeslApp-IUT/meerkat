@@ -135,6 +135,11 @@ on("Location", async (sql, vin, v, ts) => {
               VALUES (${vin}, ${Number(v.latitude)}, ${Number(v.longitude)}, ${pgTimestamp(ts)})`;
 });
 
+on("Gear", async (sql, vin, v, ts) => {
+    await sql`INSERT INTO fleet_telemetry.gear (vin, shift_state, timestamp)
+              VALUES (${vin}, ${Number(v)}, ${pgTimestamp(ts)})`;
+})
+
 // ─── Kafka connect with retry ─────────────────────────────────────────────────
 async function connectWithRetry(
     consumer: { connect(): Promise<void> },
