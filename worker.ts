@@ -120,7 +120,7 @@ on("ScheduledChargingStartTime", async (sql, vin, v, ts) => {
 });
 
 on("ClimateKeeperMode", async (sql, vin, v, ts) => {
-    await sql`INSERT INTO fleet_telemetry.keeper_mode (vin, climate_keeper_mode, timestamp)
+    await sql`INSERT INTO fleet_telemetry.climate_keeper_mode (vin, climate_keeper_mode, timestamp)
               VALUES (${vin}, ${asInt(v)}, ${pgTimestamp(ts)})`;
 });
 
