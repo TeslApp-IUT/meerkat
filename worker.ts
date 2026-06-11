@@ -124,6 +124,16 @@ on("ClimateKeeperMode", async (sql, vin, v, ts) => {
               VALUES (${vin}, ${asInt(v)}, ${pgTimestamp(ts)})`;
 });
 
+on("ChargeLimitSoc", async (sql, vin, v, ts) => {
+    await sql`INSERT INTO fleet_telemetry.charge_limit_soc (vin, charge_limit_soc, timestamp)
+              VALUES (${vin}, ${asInt(v)}, ${pgTimestamp(ts)})`;
+});
+
+on("ChargeCurrentRequest", async (sql, vin, v, ts) => {
+    await sql`INSERT INTO fleet_telemetry.charge_current_request (vin, charge_current_request, timestamp)
+              VALUES (${vin}, ${asInt(v)}, ${pgTimestamp(ts)})`;
+});
+
 on("InsideTemp", async (sql, vin, v, ts) => {
     await sql`INSERT INTO fleet_telemetry.temp_int (vin, inside_temp, timestamp)
               VALUES (${vin}, ${asFloat(v)}, ${pgTimestamp(ts)})`;
